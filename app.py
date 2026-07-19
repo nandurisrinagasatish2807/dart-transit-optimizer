@@ -27,7 +27,7 @@ else:
     
     with col1:
         st.subheader("Top 10 Worst Transfers")
-        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(df.head(10), width='stretch')
         
     with col2:
         st.subheader("Worst Hubs by Volume")
@@ -43,12 +43,12 @@ else:
     col3, col4 = st.columns([1, 2])
     
     with col3:
-        st.info("**The Metric Divergence**\n\nThis dual-axis evaluation proves that optimizing for schedule purity (Bad Connections) yields a different result than optimizing for passenger experience (Rider-Minutes Lost).\n\n* **Schedule Optimum:** $\delta = 0$ min\n* **Passenger Optimum:** $\delta = -3$ min")
+        st.info("**The Metric Divergence**\n\nThis dual-axis evaluation proves that optimizing for schedule purity (Bad Connections) yields a different result than optimizing for passenger experience (Rider-Minutes Lost).\n\n* **Schedule Optimum:** $\\delta = 0$ min\n* **Passenger Optimum:** $\\delta = -3$ min")
         
         st.warning("**Data Constraints**\n* Assumes uniform boarding demand (GTFS limitation).\n* Assumes static arrival times (requires RT-API jitter testing).")
     
     with col4:
         try:
-            st.image('optimization_tier1.png', caption="Route 128 Tier 1 Optimization Sweep", use_column_width=True)
+            st.image('optimization_tier1.png', caption="Route 128 Tier 1 Optimization Sweep")
         except:
             st.warning("Run the optimization script to generate the Tier 1 curve image.")
