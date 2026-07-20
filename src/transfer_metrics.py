@@ -1,56 +1,70 @@
 import pandas as pd
 
 def evaluate_network_transfers(arrivals, departures, min_walk_sec=120):
-    print("Aligning physics and isolated route pairs...")
+    print("Aligning physics and directional route pairs (O(n log n) matching)...")
     
-    # Apply physical walking time
+    # 1. Apply physical walking time constraints
     arrivals = arrivals.copy()
-    arrivals['passenger_ready_sec'] = arrivals['time_sec'] + min_walk_sec
-    departures = departures.rename(columns={'time_sec': 'departure_sec'})
+    arrivals['passenger_ready_sec'] = arrivals['arrival_sec'] + min_walk_sec
     
-    # Generate all possible connections at each hub
-    merged = pd.merge(arrivals, departures, on=['hub_id', 'service_id'])
+    # 2. Map valid route directions at each hub to avoid memory-crushing cross joins
+    arr_routes = arrivals[['hub_id', 'route_arr', 'dir_arr']].drop_duplicates()
+    dep_routes = departures[['hub_id', 'route_dep', 'dir_dep']].drop_duplicates()
     
-    # Partition conceptually: Ensure passenger isn't transferring to the exact same route
-    merged = merged[merged['route_arr'] != merged['route_dep']]
+    # Create all physically possible connection combinations at each hub
+    route_pairs = pd.merge(arr_routes, dep_routes, on='hub_id')
     
-    # Constrain memory: Only evaluate departures happening near the arrival window
-    valid_window = (merged['departure_sec'] >= merged['passenger_ready_sec'] - 900) & \
-                   (merged['departure_sec'] <= merged['passenger_ready_sec'] + 7200)
-    merged = merged[valid_window].copy()
+    # Strictly prevent self-transfers (evaluating a transfer to the exact same route)
+    route_pairs = route_pairs[route_pairs['route_arr'] != route_pairs['route_dep']]
     
-    # Extract the NEXT departure for EACH specific route pair
-    next_deps = merged[merged['departure_sec'] >= merged['passenger_ready_sec']].copy()
-    next_deps = next_deps.sort_values('departure_sec').drop_duplicates(
-        subset=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'], 
-        keep='first'
+    # 3. Expand arrival events to seek each specific outbound route direction
+    expanded_arrivals = pd.merge(
+        arrivals, 
+        route_pairs, 
+        on=['hub_id', 'route_arr', 'dir_arr']
     )
     
-    # Extract the PREVIOUS departure for EACH specific route pair
-    prev_deps = merged[merged['departure_sec'] <= merged['passenger_ready_sec']].copy()
-    prev_deps = prev_deps.sort_values('departure_sec').drop_duplicates(
-        subset=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'], 
-        keep='last'
+    # 4. Sort arrays strictly by time (Mandatory for merge_asof physics engine)
+    expanded_arrivals = expanded_arrivals.sort_values('passenger_ready_sec')
+    departures = departures.sort_values('departure_sec')
+    
+    # 5. Fast-Forward Match: Find the NEXT departing bus for each route pair
+    merged_next = pd.merge_asof(
+        expanded_arrivals,
+        departures,
+        left_on='passenger_ready_sec',
+        right_on='departure_sec',
+        by=['hub_id', 'service_id', 'route_dep', 'dir_dep'],
+        direction='forward'
     )
     
-    # Combine previous and next logic strictly within the same route pair
-    final_transfers = pd.merge(
-        next_deps,
-        prev_deps[['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec', 'departure_sec']],
-        on=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'],
-        how='inner',
-        suffixes=('_next', '_prev')
+    # 6. Rewind Match: Find the PREVIOUS departing bus for each route pair
+    merged_prev = pd.merge_asof(
+        expanded_arrivals,
+        departures,
+        left_on='passenger_ready_sec',
+        right_on='departure_sec',
+        by=['hub_id', 'service_id', 'route_dep', 'dir_dep'],
+        direction='backward'
     )
     
-    # Calculate exact event gaps
-    final_transfers['previous_departure_gap'] = final_transfers['passenger_ready_sec'] - final_transfers['departure_sec_prev']
-    final_transfers['next_departure_wait'] = final_transfers['departure_sec_next'] - final_transfers['passenger_ready_sec']
+    # 7. Assemble the exact transfer gaps
+    case_data = merged_next.copy()
+    case_data = case_data.rename(columns={'departure_sec': 'departure_sec_next'})
+    case_data['departure_sec_prev'] = merged_prev['departure_sec']
     
-    # STRICT FILTER: The missed bus must have departed between 1 second and 5 minutes ago
-    is_near_miss = (final_transfers['previous_departure_gap'] > 0) & (final_transfers['previous_departure_gap'] <= 300)
-    final_transfers = final_transfers[is_near_miss].copy()
+    # Drop rows where a connection doesn't exist for the rest of the day
+    case_data = case_data.dropna(subset=['departure_sec_next', 'departure_sec_prev']).copy()
     
-    # Calculate the final penalty in minutes
-    final_transfers['near_miss_penalty'] = (final_transfers['next_departure_wait'] - final_transfers['previous_departure_gap']) / 60.0
+    # 8. Calculate physical wait states
+    case_data['previous_departure_gap'] = case_data['passenger_ready_sec'] - case_data['departure_sec_prev']
+    case_data['next_departure_wait'] = case_data['departure_sec_next'] - case_data['passenger_ready_sec']
     
-    return final_transfers
+    # 9. STRICT FILTER: The missed bus must have departed between 1 second and 5 minutes ago
+    is_near_miss = (case_data['previous_departure_gap'] > 0) & (case_data['previous_departure_gap'] <= 300)
+    near_misses = case_data[is_near_miss].copy()
+    
+    # 10. Calculate final objective penalty in minutes
+    near_misses['near_miss_penalty'] = (near_misses['next_departure_wait'] - near_misses['previous_departure_gap']) / 60.0
+    
+    return near_misses
