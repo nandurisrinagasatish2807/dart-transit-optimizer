@@ -1,31 +1,4 @@
 import pandas as pd
-from gtfs_time import parse_gtfs_time
-from gtfs_calendar import get_active_services
-
-# 1. Setup paths
-DATA_PATH = 'C:/Users/nandu/dart_data/' 
-analysis_date = '20260722'
-
-# 2. Get active service IDs
-active_services = get_active_services(
-    DATA_PATH + 'calendar.txt', 
-    DATA_PATH + 'calendar_dates.txt', 
-    analysis_date
-)
-
-# 3. Load only necessary GTFS files
-trips = pd.read_csv(DATA_PATH + 'trips.txt')
-stop_times = pd.read_csv(DATA_PATH + 'stop_times.txt')
-
-# 4. Filter for active services ONLY
-active_trips = trips[trips['service_id'].isin(active_services)]
-active_stop_times = pd.merge(stop_times, active_trips, on='trip_id')
-
-# 5. Apply the time fix 
-active_stop_times['arrival_sec'] = active_stop_times['arrival_time'].apply(parse_gtfs_time)
-active_stop_times['departure_sec'] = active_stop_times['departure_time'].apply(parse_gtfs_time)
-
-import pandas as pd
 from pathlib import Path
 from gtfs_time import parse_gtfs_time
 from gtfs_calendar import get_active_services
@@ -51,17 +24,17 @@ active_stop_times = pd.merge(stop_times, active_trips, on='trip_id')
 active_stop_times['arrival_sec'] = active_stop_times['arrival_time'].apply(parse_gtfs_time)
 active_stop_times['departure_sec'] = active_stop_times['departure_time'].apply(parse_gtfs_time)
 
-# 2. Isolate the Silver Line / Route 229 bottleneck at Addison
-addison_stops = [33245, 33596]
+# 2. Isolate the Silver Line / Route 229 bottleneck at Downtown Carrollton
+carrollton_stops = [33245, 33596]
 silver_line_id = 27255 
 route_229_id = 27193
 
-addison_events = active_stop_times[active_stop_times['stop_id'].isin(addison_stops)].copy()
+carrollton_events = active_stop_times[active_stop_times['stop_id'].isin(carrollton_stops)].copy()
 
-silver_arrivals = addison_events[addison_events['route_id'] == silver_line_id][['trip_id', 'arrival_sec']].sort_values('arrival_sec')
-bus_departures = addison_events[addison_events['route_id'] == route_229_id][['trip_id', 'departure_sec']].sort_values('departure_sec')
+silver_arrivals = carrollton_events[carrollton_events['route_id'] == silver_line_id][['trip_id', 'arrival_sec']].sort_values('arrival_sec')
+bus_departures = carrollton_events[carrollton_events['route_id'] == route_229_id][['trip_id', 'departure_sec']].sort_values('departure_sec')
 
-# 3. Add Physical Walking Time (The Audit Fix)
+# 3. Add Physical Walking Time
 silver_arrivals['passenger_ready_sec'] = silver_arrivals['arrival_sec'] + MIN_WALK_SEC
 
 merged_next = pd.merge_asof(
@@ -94,9 +67,7 @@ case_data['penalty_mins'] = (case_data['near_miss_penalty'] / 60).round(1)
 
 case_data['arrival_time'] = pd.to_datetime(case_data['arrival_sec'], unit='s').dt.strftime('%H:%M:%S')
 
-print("\n--- Phase 1: Silver Line to Route 229 Bottleneck (Addison) ---")
-# 4. Filter strictly for actual near misses (between 0 and 5 minutes)
+print("\n--- Phase 1: Silver Line to Route 229 Bottleneck (Downtown Carrollton) ---")
 near_misses = case_data[case_data['missed_by_mins'].between(0, 5, inclusive='both')]
-# Drop empty rows where a bus connection doesn't exist
 near_misses = near_misses.dropna(subset=['missed_by_mins', 'wait_mins'])
 print(near_misses[['arrival_time', 'missed_by_mins', 'wait_mins', 'penalty_mins']].head(10))
