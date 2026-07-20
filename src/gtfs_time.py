@@ -1,13 +1,11 @@
 import pandas as pd
 
-def parse_gtfs_time(time_series):
+def parse_gtfs_time(time_str):
     """
-    Converts a pandas Series of GTFS time strings (HH:MM:SS) 
-    into total seconds since midnight.
-    Correctly handles post-midnight trips (e.g., 25:15:00 -> 90900 seconds).
+    Converts 'HH:MM:SS' string (including >24h) to seconds from start of service day.
     """
-    # Split the string on ':' into three separate columns for H, M, S
-    time_split = time_series.str.split(':', expand=True)
+    h, m, s = map(int, time_str.split(':'))
+    return h * 3600 + m * 60 + s
     
     # Convert strings to floats to handle any potential missing values safely
     time_split = time_split.astype(float)

@@ -1,15 +1,30 @@
-# 🚇 DART Transit Optimizer
+# DART Transfer Bottleneck Audit
 
-**An automated GTFS analysis identifying systematic scheduling failures and modeling synchronization offsets.**
+A deterministic data pipeline and interactive dashboard that audits the Dallas Area Rapid Transit (DART) GTFS schedule to identify and mathematical prove systemic transfer bottlenecks.
 
-Public transit scheduling is an NP-hard optimization problem. Planners must balance vehicle block feasibility, driver shifts, and directional flow, often at the expense of seamless passenger transfers. 
+## The Problem
+Transit agencies often evaluate schedule efficiency using brute-force time differences, ignoring practical physical realities. This project was built to address a specific real-world failure at the Addison Transit Center, where riders routinely miss connections by seconds, resulting in wait times of over 30 minutes. 
 
-This project is a data engineering and operations research case study built on top of the Dallas Area Rapid Transit (DART) GTFS (General Transit Feed Specification) data. 
+## The Solution (Phase 2 Engine)
+This repository contains a custom evaluation engine that parses raw GTFS data with strict physical and temporal constraints:
+* **Calendar-Aware:** Dynamically filters service IDs to match exact operational dates (handling weekday vs. weekend variances).
+* **Time-Parsing:** Correctly calculates standard time and overnight trips (e.g., parsing `25:30:00` GTFS anomalies).
+* **Physics-Constrained:** Applies a strict 2-minute physical walking threshold. If a scheduled connection gap is less than 120 seconds, the engine mathematically rejects the transfer and calculates the wait penalty against the *subsequent* departure.
 
-**Key Features:**
-* **Spatial Clustering (Machine Learning):** Utilized `scikit-learn` DBSCAN to physically map and group over 6,900 floating DART coordinates into unified transit hubs (e.g., merging near-side and far-side intersection bus bays).
-* **Network-Wide Auditing:** Engineered a highly optimized `pandas` pipeline using `merge_asof` to cross-reference millions of schedule rows, flagging mathematically impossible or highly inefficient transfers (1-to-5-minute missed connections).
-* **Tier 1 Optimization Modeling:** Built a synchronization model to shift route schedules ($\delta$) while strictly locking directional vehicle blocks to maintain real-world operational feasibility. 
-* **Metric Divergence Analysis:** Visualized the gap between optimizing for "Schedule Purity" (minimizing spreadsheet anomalies) versus optimizing for "Passenger Experience" (minimizing actual rider-minutes lost).
+## Project Structure
+* `src/network_audit.py`: The core ingestion engine that processes DART GTFS data and applies the physical transfer constraints.
+* `src/transfer_metrics.py`: The logic handler calculating precise minute-based penalties for missed connections.
+* `src/case_study_validator.py`: A targeted script isolating the Silver Line to Route 229 Addison bottleneck.
+* `app.py`: A Streamlit dashboard visualizing the `worst_transfers.csv` output.
 
-The backend analysis is packaged into an interactive frontend dashboard built with **Streamlit**.
+## How to Run Locally
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/nandurisrinagasatish2807/dart-transit-optimizer
+   cd dart_data
+
+   Install requirements:
+      pip install -r requirements.txt
+    Run the Dashboard:
+      python -m streamlit run app.py

@@ -1,66 +1,57 @@
 import streamlit as st
 import pandas as pd
 
-# --- PAGE SETUP ---
-st.set_page_config(page_title="DART Transit Optimizer", layout="wide")
-st.title("🚇 DART Network Audit & Route Optimizer")
-st.markdown("An automated GTFS analysis identifying systematic scheduling failures and modeling true rider wait-time penalties.")
+# Configure the page
+st.set_page_config(page_title="DART Transfer Audit", layout="wide")
 
-# --- LOAD DATA ---
+st.title("DART Network-Wide Transfer Bottleneck Audit")
+st.markdown("""
+This dashboard visualizes the worst transit hubs in the Dallas Area Rapid Transit (DART) network based on schedule synchronization failures. 
+Unlike standard GTFS parsers, this engine mathematically accounts for **exact calendar dates**, **overnight trips**, and a **2-minute minimum physical walking threshold**.
+""")
+
+# Load the dynamic dataset
 @st.cache_data
 def load_data():
     try:
-        return pd.read_csv('artifacts/worst_transfers.csv')
-    except:
-        return pd.DataFrame()
+        # Assumes the CSV is in the same directory where the app is run
+        return pd.read_csv('worst_transfers.csv')
+    except FileNotFoundError:
+        return None
 
 df = load_data()
 
-if df.empty:
-    st.error("Could not find 'worst_transfers.csv'. Please run the network audit script first.")
-else:
-    # --- SECTION 1: THE NETWORK AUDIT ---
-    st.header("1. Network-Wide Bottlenecks")
-    st.markdown("By tracking exact GTFS schedules and enforcing a 2-minute physical walking threshold, this audit calculates the true near-miss penalty (Wait Time - Miss Margin) for riders across the DART network.")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Top 10 Worst Transfers")
-        # Clean up the raw database column names for a professional UI
-        display_df = df.head(10).rename(columns={
-            'hub_id': 'Hub Name',
-            'total_failed_connections': 'Failed Connections',
-            'avg_penalty_minutes': 'Avg Penalty (Min)',
-            'max_penalty_minutes': 'Max Penalty (Min)'
-        })
-        # Round the penalty minutes for a cleaner dashboard display
-        display_df['Avg Penalty (Min)'] = display_df['Avg Penalty (Min)'].round(1)
-        display_df['Max Penalty (Min)'] = display_df['Max Penalty (Min)'].round(1)
-        
-        st.dataframe(display_df, width='stretch')
-        
-    with col2:
-        st.subheader("Severe Penalties by Hub")
-        # Chart the hubs with the highest average wait time penalties
-        chart_data = df.set_index('hub_id')['avg_penalty_minutes'].head(5)
-        st.bar_chart(chart_data)
+if df is not None:
+    # 1. High-Level Metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Problem Hubs", len(df))
+    col2.metric("Highest Avg Penalty", f"{round(df['avg_penalty_minutes'].max(), 1)} min")
+    col3.metric("Most Frequent Failures", f"{df['total_failed_connections'].max()} misses")
 
     st.divider()
 
-    # --- SECTION 2: THE OPTIMIZATION MODEL ---
-    st.header("2. The Timetable Synchronization Problem (NP-Hard)")
-    st.markdown("Shifting one bus to fix a transfer often breaks downstream connections. This Tier 1 model evaluates a global time offset for Route 128 at the Hampton @ Singleton hub across its entire 'coupled set' (Routes 106, 128, 101, 102, 219), strictly locking directional vehicle blocks to ensure operational feasibility.")
+    # 2. Interactive Data Table
+    st.subheader("Top 20 Worst Transfer Hubs")
+    st.markdown("Ranked by the highest average wait time penalty when a schedule connection is missed.")
     
-    col3, col4 = st.columns([1, 2])
+    # Format the dataframe for display
+    display_df = df.head(20).copy()
+    display_df['avg_penalty_minutes'] = display_df['avg_penalty_minutes'].round(1)
+    display_df['max_penalty_minutes'] = display_df['max_penalty_minutes'].round(1)
+    st.dataframe(display_df, use_container_width=True)
+
+    st.divider()
+
+    # 3. Visualizations
+    st.subheader("Average Wait Penalty by Hub (Minutes)")
+    # Prepare data for the bar chart
+    penalty_chart_data = display_df.set_index('hub_id')['avg_penalty_minutes']
+    st.bar_chart(penalty_chart_data)
     
-    with col3:
-        st.info("**The Metric Divergence**\n\nThis dual-axis evaluation proves that optimizing for schedule purity (Bad Connections) yields a different result than optimizing for passenger experience (Rider-Minutes Lost).\n\n* **Schedule Optimum:** $\\delta = 0$ min\n* **Passenger Optimum:** $\\delta = -3$ min")
-        
-        st.warning("**Data Constraints**\n* Assumes uniform boarding demand (GTFS limitation).\n* Assumes static arrival times (requires RT-API jitter testing).")
-    
-    with col4:
-        try:
-            st.image('artifacts/optimization_tier1.png', caption="Route 128 Tier 1 Optimization Sweep")
-        except:
-            st.warning("Run the optimization script to generate the Tier 1 curve image.")
+    st.subheader("Volume of Failed Connections by Hub")
+    st.markdown("Shows how many distinct trip pairs failed the 2-minute physical transfer threshold.")
+    volume_chart_data = display_df.set_index('hub_id')['total_failed_connections']
+    st.bar_chart(volume_chart_data)
+
+else:
+    st.error("Could not find 'worst_transfers.csv'. Please run the Phase 2 network audit script first.")

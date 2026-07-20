@@ -22,9 +22,8 @@ schedule = pd.merge(stop_times, active_trips, on='trip_id')
 schedule = pd.merge(schedule, stops, on='stop_id')
 
 # Pass the strings through your custom time parser
-schedule['arrival_sec'] = parse_gtfs_time(schedule['arrival_time'])
-schedule['departure_sec'] = parse_gtfs_time(schedule['departure_time'])
-
+schedule['arrival_sec'] = schedule['arrival_time'].apply(parse_gtfs_time)
+schedule['departure_sec'] = schedule['departure_time'].apply(parse_gtfs_time)
 # Standardize the column names for the transfer metrics engine
 arrivals = schedule[['stop_name', 'service_id', 'arrival_sec', 'route_id']].rename(
     columns={'stop_name': 'hub_id', 'arrival_sec': 'time_sec', 'route_id': 'route_arr'}
