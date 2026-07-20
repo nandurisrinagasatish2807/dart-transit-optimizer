@@ -34,7 +34,7 @@ def evaluate_network_transfers(arrivals, departures, min_walk_sec=120):
         departures,
         left_on='passenger_ready_sec',
         right_on='departure_sec',
-        by=['hub_id', 'service_id', 'route_dep', 'dir_dep'],
+        by=['hub_id', 'route_dep', 'dir_dep'],
         direction='forward'
     )
     
@@ -44,7 +44,7 @@ def evaluate_network_transfers(arrivals, departures, min_walk_sec=120):
         departures,
         left_on='passenger_ready_sec',
         right_on='departure_sec',
-        by=['hub_id', 'service_id', 'route_dep', 'dir_dep'],
+        by=['hub_id',  'route_dep', 'dir_dep'],
         direction='backward'
     )
     
