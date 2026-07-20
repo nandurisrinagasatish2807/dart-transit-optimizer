@@ -23,7 +23,7 @@ stops = pd.read_csv(DATA_PATH / 'stops.txt', usecols=['stop_id', 'stop_name', 's
 
 # Apply DBSCAN to cluster physical platforms within ~200 meters into single hubs
 coords = np.radians(stops[['stop_lat', 'stop_lon']].values)
-db = DBSCAN(eps=0.002, min_samples=1, metric='haversine', algorithm='ball_tree')
+db = DBSCAN(eps=0.0000314, min_samples=1, metric='haversine', algorithm='ball_tree')
 stops['hub_id'] = db.fit_predict(coords)
 
 # Load trips with direction_id to prevent transferring to a return trip
@@ -58,7 +58,7 @@ worst_hubs = results.groupby(['hub_id', 'route_arr', 'route_dep']).agg(
     max_penalty_minutes=('near_miss_penalty', 'max')
 ).reset_index()
 
-worst_hubs = worst_hubs[worst_hubs['total_failed_connections'] >= 10]
+worst_hubs = worst_hubs[worst_hubs['total_failed_connections'] >= 1]
 worst_hubs = worst_hubs.sort_values('avg_penalty_minutes', ascending=False)
 
 worst_hubs.to_csv(DATA_PATH / 'worst_transfers.csv', index=False)
