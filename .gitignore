@@ -9,3 +9,6 @@ __pycache__/
 .venv/
 .env
 artifacts/
+*.txt
+artifacts/
+__pycache__/

@@ -1,66 +1,56 @@
 import pandas as pd
 
 def evaluate_network_transfers(arrivals, departures, min_walk_sec=120):
-    """
-    Calculates the true near-miss penalty across the entire network,
-    strictly partitioning the merges by physical hub and active service date.
-    """
-    arrivals = arrivals.sort_values('time_sec').copy()
-    departures = departures.sort_values('time_sec').copy()
+    print("Aligning physics and isolated route pairs...")
     
-    departures['matched_dep_time'] = departures['time_sec']
-    arrivals['effective_arr_sec'] = arrivals['time_sec'] + min_walk_sec
+    # Apply physical walking time
+    arrivals = arrivals.copy()
+    arrivals['passenger_ready_sec'] = arrivals['time_sec'] + min_walk_sec
+    departures = departures.rename(columns={'time_sec': 'departure_sec'})
     
-    # Partitioning applied: The 'by' parameter ensures we only match 
-    # buses at the exact same physical hub on the exact same service day.
-    merged_backward = pd.merge_asof(
-        arrivals, departures, 
-        left_on='effective_arr_sec', 
-        right_on='time_sec',
-        by=['hub_id', 'service_id'],
-        direction='backward'
+    # Generate all possible connections at each hub
+    merged = pd.merge(arrivals, departures, on=['hub_id', 'service_id'])
+    
+    # Partition conceptually: Ensure passenger isn't transferring to the exact same route
+    merged = merged[merged['route_arr'] != merged['route_dep']]
+    
+    # Constrain memory: Only evaluate departures happening near the arrival window
+    valid_window = (merged['departure_sec'] >= merged['passenger_ready_sec'] - 900) & \
+                   (merged['departure_sec'] <= merged['passenger_ready_sec'] + 7200)
+    merged = merged[valid_window].copy()
+    
+    # Extract the NEXT departure for EACH specific route pair
+    next_deps = merged[merged['departure_sec'] >= merged['passenger_ready_sec']].copy()
+    next_deps = next_deps.sort_values('departure_sec').drop_duplicates(
+        subset=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'], 
+        keep='first'
     )
     
-    merged_forward = pd.merge_asof(
-        arrivals, departures, 
-        left_on='effective_arr_sec', 
-        right_on='time_sec',
-        by=['hub_id', 'service_id'],
-        direction='forward'
+    # Extract the PREVIOUS departure for EACH specific route pair
+    prev_deps = merged[merged['departure_sec'] <= merged['passenger_ready_sec']].copy()
+    prev_deps = prev_deps.sort_values('departure_sec').drop_duplicates(
+        subset=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'], 
+        keep='last'
     )
     
-    # Standard processing applied
-    results = arrivals.copy()
-    results['prev_dep_time'] = merged_backward['matched_dep_time']
-    results['next_dep_time'] = merged_forward['matched_dep_time']
+    # Combine previous and next logic strictly within the same route pair
+    final_transfers = pd.merge(
+        next_deps,
+        prev_deps[['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec', 'departure_sec']],
+        on=['hub_id', 'service_id', 'route_arr', 'route_dep', 'passenger_ready_sec'],
+        how='inner',
+        suffixes=('_next', '_prev')
+    )
     
-    # CRITICAL FIX: Pull the departing route ID from the forward merge
-    results['route_dep'] = merged_forward['route_dep']
+    # Calculate exact event gaps
+    final_transfers['previous_departure_gap'] = final_transfers['passenger_ready_sec'] - final_transfers['departure_sec_prev']
+    final_transfers['next_departure_wait'] = final_transfers['departure_sec_next'] - final_transfers['passenger_ready_sec']
     
-    results['miss_margin_min'] = (results['effective_arr_sec'] - results['prev_dep_time']) / 60
-    results['wait_time_min'] = (results['next_dep_time'] - results['effective_arr_sec']) / 60
-    results['near_miss_penalty'] = results['wait_time_min'] - results['miss_margin_min']
+    # STRICT FILTER: The missed bus must have departed between 1 second and 5 minutes ago
+    is_near_miss = (final_transfers['previous_departure_gap'] > 0) & (final_transfers['previous_departure_gap'] <= 300)
+    final_transfers = final_transfers[is_near_miss].copy()
     
-    return results
-
-# --- Quick Test Block ---
-if __name__ == "__main__":
-    # Two different hubs at the exact same time
-    test_arrivals = pd.DataFrame({
-        'hub_id': ['HUB_A', 'HUB_B'],
-        'service_id': ['WKDY', 'WKDY'],
-        'time_sec': [28800, 28800], # 8:00 AM
-        'route_arr': ['101', '101']
-    }) 
+    # Calculate the final penalty in minutes
+    final_transfers['near_miss_penalty'] = (final_transfers['next_departure_wait'] - final_transfers['previous_departure_gap']) / 60.0
     
-    # Hub A has a bad connection, Hub B has a perfect connection
-    test_departures = pd.DataFrame({
-        'hub_id': ['HUB_A', 'HUB_A', 'HUB_B'],
-        'service_id': ['WKDY', 'WKDY', 'WKDY'],
-        'time_sec': [28860, 30660, 29400], # Hub A: 8:01, 8:31 | Hub B: 8:10
-        'route_dep': ['102', '102', '102']
-    }) 
-    
-    print("Testing Network-Partitioned Transfer Penalties:")
-    res = evaluate_network_transfers(test_arrivals, test_departures, min_walk_sec=120)
-    print(res[['hub_id', 'time_sec', 'near_miss_penalty', 'route_dep']])
+    return final_transfers
