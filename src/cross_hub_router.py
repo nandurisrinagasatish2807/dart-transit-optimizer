@@ -1,41 +1,34 @@
 import networkx as nx
+import pandas as pd
 
 def build_transfer_graph():
-    print("Initializing Multi-Hub Graph Architecture (Tier 2)...")
+    print("Initializing Multi-Hub Graph Architecture with Audit Data...")
     
-    # Initialize a Directed Graph (because buses don't always run the same route backwards)
+    # Load the canonical data
+    try:
+        df = pd.read_csv("worst_transfers.csv")
+    except FileNotFoundError:
+        print("Error: worst_transfers.csv not found.")
+        return
+
+    # Initialize a Directed Graph
     G = nx.DiGraph()
     
-    # Add our physical hubs (Nodes)
-    G.add_node("Hub_Plano", type="transit_center")
-    G.add_node("Hub_Carrollton", type="rail_station")
-    G.add_node("Hub_Downtown", type="major_hub")
-    
-    # Add the transit routes connecting them (Edges) with travel time weights
-    G.add_edge("Hub_Plano", "Hub_Carrollton", route="Silver Line", travel_time_min=15)
-    G.add_edge("Hub_Carrollton", "Hub_Downtown", route="Green Line", travel_time_min=25)
-    
-    print(f"Graph successfully built with {G.number_of_nodes()} hubs and {G.number_of_edges()} connecting routes.")
-    
-    # Execute a mathematical shortest-path routing algorithm
-    source = "Hub_Plano"
-    destination = "Hub_Downtown"
-    
-    try:
-        # A* or Dijkstra's algorithm to find the fastest path
-        optimal_path = nx.shortest_path(G, source=source, target=destination, weight="travel_time_min")
+    # Dynamically build the graph from your 3,299 bottlenecks
+    # We are using hub_id as the nodes, and connecting arriving/departing routes
+    for index, row in df.iterrows():
+        hub = f"Hub_{row['hub_id']}"
+        arr_route = f"Route_{row['route_arr']}"
+        dep_route = f"Route_{row['route_dep']}"
         
-        print(f"\n[ROUTING ENGINE]")
-        print(f"Origin: {source}")
-        print(f"Destination: {destination}")
-        print(f"Optimal Transfer Path: {' -> '.join(optimal_path)}")
-        
-        # Calculate total theoretical travel time (without wait penalties yet)
-        total_time = nx.path_weight(G, optimal_path, weight="travel_time_min")
-        print(f"Theoretical Travel Time: {total_time} minutes")
-        
-    except nx.NetworkXNoPath:
-        print("Error: No valid transit path exists between these hubs.")
+        # Add edges representing a transfer at a specific hub
+        G.add_edge(arr_route, hub, weight=1)
+        G.add_edge(hub, dep_route, weight=1)
+
+    print(f"✅ Graph successfully built with {G.number_of_nodes()} active nodes and {G.number_of_edges()} transfer edges based on real data.")
+    
+    # We can now run A* or Dijkstra's across the actual DART network
+    print("Graph engine is ready for shortest-path calculations across all 3,299 bottlenecks.")
 
 if __name__ == "__main__":
     build_transfer_graph()
