@@ -26,6 +26,16 @@ coords = np.radians(stops[['stop_lat', 'stop_lon']].values)
 db = DBSCAN(eps=0.0000314, min_samples=1, metric='haversine', algorithm='ball_tree')
 stops['hub_id'] = db.fit_predict(coords)
 
+# --- NEW EXPORT LOGIC FOR 3D MAP ---
+# Calculate the geographic center of each clustered hub and save it
+hub_centroids = stops.groupby('hub_id').agg(
+    lat=('stop_lat', 'mean'),
+    lon=('stop_lon', 'mean')
+).reset_index()
+hub_centroids.to_csv(DATA_PATH / 'hub_centroids.csv', index=False)
+print(f"Exported coordinates for {len(hub_centroids)} physical hubs to hub_centroids.csv.")
+# -----------------------------------
+
 # Load trips with direction_id to prevent transferring to a return trip
 trips = pd.read_csv(DATA_PATH / 'trips.txt', usecols=['trip_id', 'route_id', 'service_id', 'direction_id'])
 stop_times = pd.read_csv(DATA_PATH / 'stop_times.txt', usecols=['trip_id', 'stop_id', 'arrival_time', 'departure_time'])
