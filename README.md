@@ -13,7 +13,6 @@ This pipeline moves beyond simple data aggregation, utilizing advanced spatial c
 
 ## 📊 Visualizations
 
-*(Note: Replace these placeholders with the actual screenshots you took!)*
 
 ### 1. 3D Spatial Heat Map (Streamlit & PyDeck)
 ![Streamlit 3D Map](artifacts/streamlit_map_screenshot.png)
