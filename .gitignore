@@ -1,16 +1,11 @@
-# Python stuff
-__pycache__/
-*.py[cod]
-
-# GTFS raw data
-*.txt
 
 # Environments/Artifacts
-.venv/
-.env
-artifacts/
+# GTFS raw data
+# Python stuff
+*.py[cod]
 *.txt
-artifacts/
-__pycache__/
 .env
+.venv/
+__pycache__/
+artifacts/
 lib/
