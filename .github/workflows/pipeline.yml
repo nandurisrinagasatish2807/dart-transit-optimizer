@@ -1,0 +1,60 @@
+name: DART Optimizer CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy scikit-learn streamlit
+
+    - name: Set PYTHONPATH
+      run: echo "PYTHONPATH=src" >> $GITHUB_ENV
+
+    - name: Run Phase 1 & 2 - Matcher
+      run: python src/dart_optimizer/transfers/matcher.py
+
+    - name: Run Phase 3 - Spatial Hub Builder
+      run: python src/dart_optimizer/hubs/builder.py
+
+    - name: Run Phase 3.1 - Hub Walking Engine
+      run: python src/dart_optimizer/hubs/walking.py
+
+    - name: Run Phase 3.3 - Hub Summary
+      run: python src/dart_optimizer/hubs/summary.py
+
+    - name: Run Phase 4 - Eligibility Filters
+      run: python src/dart_optimizer/transfers/eligibility.py
+
+    - name: Run Phase 4.2 - Eligible Summary
+      run: python src/dart_optimizer/transfers/eligible_summary.py
+
+    - name: Run Phase 5 - Optimization Simulator
+      run: python src/dart_optimizer/optimizer/simulator.py
+
+    - name: Run Phase 5.2 - Recommendations
+      run: python src/dart_optimizer/optimizer/recommendations.py
+
+    - name: Run Phase 7 - Executive Reporter
+      run: python src/dart_optimizer/dashboard/reporter.py
+
+    - name: Verify Artifacts Output
+      run: |
+        ls -la artifacts/data/
