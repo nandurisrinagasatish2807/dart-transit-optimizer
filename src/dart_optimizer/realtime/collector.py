@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedzone
 
 import duckdb
 
@@ -29,8 +29,8 @@ def log_mock_realtime_sample(db_path="artifacts/data/realtime_transit.duckdb"):
     conn = duckdb.connect(db_path)
     
     sample_data = [
-        (datetime.now(), "trip_101_A", "101", "cluster_36", "08:30:00", "08:32:00", 120, "2026-07-23"),
-        (datetime.now(), "trip_104_B", "104", "cluster_36", "08:33:00", "08:35:00", 120, "2026-07-23")
+        (datetime.now(timezone.utc), "trip_101_A", "101", "cluster_36", "08:30:00", "08:32:00", 120, "2026-07-23"),
+        (datetime.now(timezone.utc), "trip_104_B", "104", "cluster_36", "08:33:00", "08:35:00", 120, "2026-07-23")
     ]
     
     conn.executemany("""

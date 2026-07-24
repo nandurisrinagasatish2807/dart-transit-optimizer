@@ -17,7 +17,7 @@ def time_to_seconds(time_str):
     try:
         h, m, s = map(int, str(time_str).strip().split(':'))
         return h * 3600 + m * 60 + s
-    except Exception:
+    except ValueError:
         return np.nan
 
 def generate_transfer_events():
