@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedzone
+from datetime import datetime, timezone
 
 import duckdb
 
