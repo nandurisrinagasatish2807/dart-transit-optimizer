@@ -1,7 +1,8 @@
 import os
-import duckdb
-import pandas as pd
 from datetime import datetime
+
+import duckdb
+
 
 def init_duckdb(db_path="artifacts/data/realtime_transit.duckdb"):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)

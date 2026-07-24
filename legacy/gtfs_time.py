@@ -1,5 +1,7 @@
 from typing import Any
+
 import pandas as pd
+
 
 def parse_gtfs_time(value: Any) -> int | None:
     # Safely handle empty or missing values

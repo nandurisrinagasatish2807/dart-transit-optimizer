@@ -1,6 +1,8 @@
-import pandas as pd
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
+
+import pandas as pd
+
 
 def shift_time(time_str, delta_minutes):
     """Safely shifts GTFS HH:MM:SS string by a specific delta, handling >24h format."""
@@ -14,7 +16,7 @@ def shift_time(time_str, delta_minutes):
 
 def generate_real_gtfs_patch(target_route, shift_minutes):
     print(f"\n{'='*50}")
-    print(f"🚇 DART Schedule Patcher (Production Master)")
+    print("🚇 DART Schedule Patcher (Production Master)")
     print(f"{'='*50}")
     print(f"Target Route: {target_route}")
     print(f"Applied Shift: +{shift_minutes} minutes\n")
@@ -64,7 +66,7 @@ def merge_patch(original_stop_times, patched_schedule, target_trips):
     master_filename = "artifacts/master_stop_times_PATCHED.txt"
     master_patched.to_csv(master_filename, index=False)
     
-    print(f"\n✅ SUCCESS: Full production-ready GTFS stop_times compiled!")
+    print("\n✅ SUCCESS: Full production-ready GTFS stop_times compiled!")
     print(f"   Total rows safely maintained in master file: {len(master_patched):,}")
     print(f"   Saved to: {master_filename}")
 

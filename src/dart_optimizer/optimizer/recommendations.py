@@ -1,6 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
+
+import pandas as pd
+
 
 def generate_recommendations():
     print(f"\n{'='*50}")
@@ -52,7 +53,7 @@ def generate_recommendations():
     out_file = "artifacts/data/optimal_schedule_recommendations.csv"
     optimal_df.to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Generated Optimal Schedule Recommendations.")
+    print("\n✅ SUCCESS: Generated Optimal Schedule Recommendations.")
     print(f"   Total high-impact bottleneck pairs optimized: {len(optimal_df):,}")
     print(f"   Top recommended adjustments saved to: {out_file}")
 

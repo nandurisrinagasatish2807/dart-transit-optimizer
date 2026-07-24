@@ -1,5 +1,7 @@
-import pandas as pd
 import os
+
+import pandas as pd
+
 
 def generate_executive_report():
     print(f"\n{'='*50}")
@@ -44,7 +46,7 @@ def generate_executive_report():
     for idx, row in top_bottlenecks.iterrows():
         report_content += f"   - Hub: {row['hub_id']} | Route {row['route_arr_name']} -> Route {row['route_dep_name']} | Near-Misses: {row['near_misses']:,} ({row['near_miss_rate']*100:.1f}% rate)\n"
 
-    report_content += f"""
+    report_content += """
 ==================================================
 Report Generated Successfully via DART Optimizer Pipeline.
 ==================================================

@@ -1,6 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
+
+import pandas as pd
+
 
 def generate_eligible_summary():
     print(f"\n{'='*50}")
@@ -50,7 +51,7 @@ def generate_eligible_summary():
     out_file = "artifacts/data/eligible_transfer_summary.csv"
     summary.to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Generated Phase 4 Eligible Summary Output.")
+    print("\n✅ SUCCESS: Generated Phase 4 Eligible Summary Output.")
     print(f"   Total unique eligible route pairs mapped: {len(summary):,}")
     print(f"   Saved to: {out_file}")
 

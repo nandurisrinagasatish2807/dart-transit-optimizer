@@ -1,7 +1,9 @@
-import pandas as pd
 from pathlib import Path
-from gtfs_time import parse_gtfs_time
+
+import pandas as pd
+
 from gtfs_calendar import get_active_services
+from gtfs_time import parse_gtfs_time
 
 # 1. Use relative paths so it works on any computer
 DATA_PATH = Path(".")

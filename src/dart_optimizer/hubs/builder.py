@@ -1,7 +1,9 @@
-import pandas as pd
-import numpy as np
 import os
+
+import numpy as np
+import pandas as pd
 from sklearn.cluster import DBSCAN
+
 
 def build_transit_hubs():
     print(f"\n{'='*50}")
@@ -46,7 +48,7 @@ def build_transit_hubs():
     out_file = "artifacts/data/transit_hubs.csv"
     stops[['stop_id', 'stop_name', 'stop_lat', 'stop_lon', 'hub_id']].to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Mapped stops to unified transfer hubs.")
+    print("\n✅ SUCCESS: Mapped stops to unified transfer hubs.")
     print(f"   Total active stops mapped: {len(stops):,}")
     print(f"   Unique hubs identified: {stops['hub_id'].nunique():,}")
     print(f"   Saved to: {out_file}")

@@ -1,12 +1,14 @@
-import pytest
-import pandas as pd
 import sys
 from pathlib import Path
+
+import pandas as pd
+import pytest
 
 # Add the 'src' directory to the system path so Python can find your module
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from gtfs_time import parse_gtfs_time
+
 
 def test_parse_gtfs_time_standard():
     # 08:30:00 -> (8 * 3600) + (30 * 60) + 0 = 30600 seconds

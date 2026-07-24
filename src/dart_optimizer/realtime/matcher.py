@@ -1,5 +1,5 @@
 import duckdb
-import pandas as pd
+
 
 def validate_realtime_transfers(db_path="artifacts/data/realtime_transit.duckdb"):
     print(f"\n{'='*50}")
@@ -42,7 +42,7 @@ def validate_realtime_transfers(db_path="artifacts/data/realtime_transit.duckdb"
         status = "AT RISK / MISSED" if row['connection_at_risk'] else "SUCCESSFUL"
         print(f"   - Trip {row['trip_id']} (Route {row['route_id']}) at {row['stop_id']}: Delay = {row['delay_min']:.1f} min | Status: {status}")
 
-    print(f"\n✅ SUCCESS: Realtime validation analysis complete.")
+    print("\n✅ SUCCESS: Realtime validation analysis complete.")
 
 if __name__ == "__main__":
     validate_realtime_transfers()

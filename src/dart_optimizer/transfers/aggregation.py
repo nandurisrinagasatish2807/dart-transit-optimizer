@@ -1,6 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
+
+import pandas as pd
+
 
 def generate_summary():
     print(f"\n{'='*50}")
@@ -49,7 +50,7 @@ def generate_summary():
     out_file = "artifacts/data/transfer_summary.csv"
     summary.to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Generated Phase 2 Transfer Summary.")
+    print("\n✅ SUCCESS: Generated Phase 2 Transfer Summary.")
     print(f"   Total route pairs analyzed: {len(summary):,}")
     print(f"   Saved to: {out_file}")
 

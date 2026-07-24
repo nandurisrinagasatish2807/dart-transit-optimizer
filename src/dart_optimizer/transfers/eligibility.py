@@ -1,6 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
+
+import pandas as pd
+
 
 def apply_eligibility_rules():
     print(f"\n{'='*50}")
@@ -44,7 +45,7 @@ def apply_eligibility_rules():
     out_file = "artifacts/data/eligible_transfer_events.csv"
     df.to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Eligibility Rules Applied.")
+    print("\n✅ SUCCESS: Eligibility Rules Applied.")
     print(f"   Filtered out invalid/unrealistic transfers: {filtered_out:,}")
     print(f"   Final valid passenger transfer opportunities: {final_count:,}")
     print(f"   Saved to: {out_file}")
