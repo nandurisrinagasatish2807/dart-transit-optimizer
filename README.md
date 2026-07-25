@@ -1,71 +1,83 @@
-# 🚇 DART Transit Transfer Optimizer & Simulation Engine
+# 🚇 DART Transit Optimizer
 
-A production-grade, end-to-end spatial data engineering and optimization pipeline built to analyze, simulate, and resolve transit passenger transfer bottlenecks across the Dallas Area Rapid Transit (DART) network.
+[![CI/CD Pipeline](https://github.com/nandurisrinagasatish2807/dart-transit-optimizer/actions/workflows/pipeline.yml/badge.svg)](https://github.com/nandurisrinagasatish2807/dart-transit-optimizer/actions)
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
+[![Pandas](https://img.shields.io/badge/Pandas-3.0.3-150458.svg)](https://pandas.pydata.org/)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
----
+An advanced data engineering and simulation pipeline designed to analyze Dallas Area Rapid Transit (DART) GTFS data, identify network-level transfer bottlenecks, and algorithmically optimize schedules to rescue missed passenger connections.
 
-## 🌟 Executive Summary
+## 🚀 Project Overview
 
-Transit riders often face stressful near-miss connections where a bus or train arrives just moments after a connecting vehicle departs. This project processes over **1 million raw GTFS schedule events**, clusters physical stops into multi-platform transit hubs via **DBSCAN**, filters unrealistic passenger transfer loops, and runs a **schedule-shift optimization simulation** to rescue stranded passengers.
+Public transit networks often suffer from "near-miss" connections, where a passenger's arriving vehicle misses a departing connection by a margin of just a few minutes. This project mathematically audits static and real-time GTFS schedules to isolate these bottlenecks and simulates schedule offsets to improve overall network fluidity.
 
-* **Total Hub Route Pairs Mapped:** 7,671
-* **Near-Miss Transfer Events Tracked:** 43,570
-* **High-Impact Bottleneck Pairs Optimized:** 920
-* **Near-Misses Successfully Rescued via Schedule Shifting:** 32,904 (9.7% network average near-miss rate reduced)
+**Project Scale & Impact:**
+* Processed and validated **1.07 million+** route-direction safe transfer events.
+* Evaluated **25,000+** schedule shift scenarios across high-impact transit hubs.
+* Built a mathematically sound simulation engine that recalculates localized wait times and miss margins under shifted departure constraints.
 
----
+## ⚙️ Core Architecture
 
-## 🏗️ Architecture & Pipeline Phases
+* **Phase 1: GTFS Parsing & Matching:** Extracts raw schedule data and computes rolling nearest-matches grouped strictly by Route and Direction to ensure high data integrity.
+* **Phase 2: Transfer Metrics:** Calculates scheduled headways, miss margins, and wait fractions to assign severity levels to individual connections.
+* **Phase 3: Simulation Engine:** A localized schedule-shifting module that evaluates the ripple effect of delaying or advancing departures (e.g., -300s to +300s) to close miss margins without invalidating subsequent stops.
+* **Phase 4: Tactical Bus-Hold Module:** A simulated operational tool returning structured JSON responses to recommend holding connecting vehicles based on real-time train delays and rider thresholds.
 
-1. **Phase 1 & 2 (Data Modeling & Metrics):** Processes GTFS text feeds, parsing trip sequences, wait fractions, categorical severities, and near-miss margins.
-2. **Phase 3 (Spatial Hub Clustering):** Utilizes **DBSCAN spatial clustering** with Haversine metrics to group nearby stops into **1,133 unified physical transfer hubs** with multi-platform walking pathways.
-3. **Phase 4 (Passenger Eligibility Rules):** Filters out same-route/same-direction loops and excessive wait times (>60 minutes) to isolate **368,164 passenger-viable transfers**.
-4. **Phase 5 (Simulation & Optimization Engine):** Models 10,582 schedule-shift scenarios across 11 time offsets (-5 to +5 minutes) to isolate optimal bottleneck adjustments.
-5. **Phase 6 (Interactive Streamlit Dashboard):** Deploys a real-time executive dashboard featuring network filters, bottleneck rankings, and hub deep-dive views.
-6. **Phase 7 & 8 (Reporting & CI/CD):** Automated executive text/CSV summary generation and **GitHub Actions CI/CD pipeline** integration.
-7. **Phase 9 (Automated Testing):** Comprehensive unit testing suite built with `pytest`.
+## 🛠️ Tech Stack
 
----
+* **Data Processing & Analytics:** Python, Pandas, NumPy
+* **Data Storage:** DuckDB (Real-time transit state tracking)
+* **Testing & Quality Assurance:** Pytest, Ruff (Strict linting)
+* **CI/CD & Automation:** GitHub Actions
 
-## 🚀 Getting Started & Installation
+## 📦 Getting Started
 
-### Prerequisites
-* Python 3.10+
-* Git
+### 1. Clone the Repository
+```bash
+git clone [https://github.com/nandurisrinagasatish2807/dart-transit-optimizer.git](https://github.com/nandurisrinagasatish2807/dart-transit-optimizer.git)
+cd dart-transit-optimizer
+```
 
-### Installation
+### 2. Set Up the Environment
+Ensure you have Python 3.12+ installed, then install the required dependencies:
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-1. Clone the repository:
-   ```powershell
-   git clone [https://github.com/nandurisrinagasatish2807/dart-transit-optimizer.git](https://github.com/nandurisrinagasatish2807/dart-transit-optimizer.git)
-   cd dart-transit-optimizer
-   Install dependencies:
-
-PowerShell
-python -m pip install pandas numpy scikit-learn streamlit pytest
-Set your Python path:
-
-PowerShell
+### 3. Run the Pipeline locally
+Set your Python path and execute the core matching and simulation modules:
+```bash
+# Windows (PowerShell)
 $env:PYTHONPATH="src"
-📊 Running the Dashboard
-Launch the interactive local Streamlit dashboard:
 
-PowerShell
-python -m streamlit run src/dart_optimizer/dashboard/app.py
-🧪 Running Unit Tests
-Execute the automated test suite via pytest:
+# Generate Route-Direction Safe Transfer Events
+python src/dart_optimizer/transfers/matcher.py
 
-PowerShell
-python -m pytest
-🛠️ Tech Stack
-Language: Python
+# Run Schedule Shift Simulations
+python src/dart_optimizer/optimizer/simulator.py
+```
 
-Data Processing & Analytics: Pandas, NumPy
+## 🧪 Testing & CI/CD
 
-Spatial Analysis: Scikit-Learn (DBSCAN Clustering), Haversine Distance
+This repository enforces strict continuous integration using GitHub Actions. Every push and pull request is automatically verified for:
+1. **Dependency Resolution:** Clean installation of all required packages.
+2. **Code Quality:** Enforced formatting and import sorting using `ruff`.
+3. **Logic Validation:** Automated unit testing executed via `pytest`.
 
-Dashboard & UI: Streamlit
+To run the test suite locally:
+```bash
+python -m pytest -q
+```
 
-Testing: Pytest
+To run the linter locally:
+```bash
+python -m ruff check src tests
+```
 
-CI/CD: GitHub Actions
+## 📂 Repository Structure
+* `/src/dart_optimizer/`: Core application modules (transfers, hubs, optimizer, realtime).
+* `/tests/`: `pytest` suite validating math and core logic.
+* `/artifacts/data/`: Generated analytical outputs and simulation matrices (ignored in version control).
+* `/legacy/`: Archived, superseded root-level scripts.
+* `/.github/workflows/`: CI/CD pipeline configuration.

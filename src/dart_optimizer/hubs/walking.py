@@ -11,7 +11,7 @@ from dart_optimizer.transfers.metrics import (
 
 def build_hub_transfers():
     print(f"\n{'='*50}")
-    print("🚇 DART Optimizer | Phase 3.1: Hub-Level Transfer Matching")
+    print("🚇 DART Optimizer | Phase 3.1: Hub-Level Transfer Matching (Route-Safe)")
     print(f"{'='*50}")
 
     staged_file = "artifacts/data/staged_events.csv"
@@ -33,7 +33,7 @@ def build_hub_transfers():
     df = df.merge(hubs[['stop_id', 'hub_id']], on='stop_id', how='inner')
     df['arrival_sec'] = pd.to_numeric(df['arrival_sec'], errors='coerce')
     df['departure_sec'] = pd.to_numeric(df['departure_sec'], errors='coerce')
-    df = df.dropna(subset=['arrival_sec', 'departure_sec']).sort_values('departure_sec')
+    df = df.dropna(subset=['arrival_sec', 'departure_sec'])
 
     walking_time_sec = 120  # Base inter-platform walking time
 
@@ -52,7 +52,6 @@ def build_hub_transfers():
 
     arrivals['passenger_ready_sec'] = arrivals['scheduled_arrival_sec'] + walking_time_sec
     arrivals['walking_time_sec'] = walking_time_sec
-    arrivals = arrivals.sort_values('passenger_ready_sec')
 
     departures = df.rename(columns={
         'trip_id': 'departure_trip_id',
@@ -61,30 +60,56 @@ def build_hub_transfers():
         'direction_id': 'dir_dep'
     }).drop(columns=['arrival_sec'])
 
-    print("Executing rolling nearest-match across unified hubs...")
-    # Group by hub_id and service_id instead of raw stop_id
-    next_deps = pd.merge_asof(
-        arrivals, departures,
-        left_on='passenger_ready_sec', right_on='departure_sec',
-        by=['hub_id', 'service_id'],
-        direction='forward', suffixes=('', '_drop')
-    )
-    
-    prev_deps = pd.merge_asof(
-        arrivals, departures,
-        left_on='passenger_ready_sec', right_on='departure_sec',
-        by=['hub_id', 'service_id'],
-        direction='backward', suffixes=('', '_prev')
+    # --- P0 FIX: ROUTE-DIRECTION SAFE EXPANSION LOGIC ---
+    print("Building outbound route candidates by hub...")
+    dep_candidates = departures[['hub_id', 'service_id', 'route_dep_id', 'route_dep_name', 'dir_dep']].drop_duplicates()
+
+    print("Expanding arrivals against valid hub outbound routes...")
+    expanded_arrivals = pd.merge(
+        arrivals,
+        dep_candidates,
+        on=['hub_id', 'service_id'],
+        how='inner'
     )
 
-    events = next_deps.copy()
-    events['next_departure_sec'] = events['departure_sec']
-    events['next_departure_trip_id'] = events['departure_trip_id']
+    # Filter out same-route transfers (e.g., waiting for the next bus on the exact same route)
+    expanded_arrivals = expanded_arrivals[expanded_arrivals['route_arr_id'] != expanded_arrivals['route_dep_id']].copy()
+
+    # Sort strictly by time for merge_asof to work
+    expanded_arrivals = expanded_arrivals.sort_values('passenger_ready_sec')
+    departures = departures.sort_values('departure_sec')
+
+    # Keep departures lean for the merge_asof to avoid column collisions
+    deps_for_merge = departures[['hub_id', 'service_id', 'route_dep_id', 'dir_dep', 'departure_sec', 'departure_trip_id']]
+
+    print("Executing route-safe rolling nearest-match...")
+    prev_deps = pd.merge_asof(
+        expanded_arrivals,
+        deps_for_merge,
+        left_on='passenger_ready_sec',
+        right_on='departure_sec',
+        by=['hub_id', 'service_id', 'route_dep_id', 'dir_dep'],
+        direction='backward'
+    )
+
+    next_deps = pd.merge_asof(
+        expanded_arrivals,
+        deps_for_merge,
+        left_on='passenger_ready_sec',
+        right_on='departure_sec',
+        by=['hub_id', 'service_id', 'route_dep_id', 'dir_dep'],
+        direction='forward'
+    )
+
+    # Stitch the timeline together
+    events = expanded_arrivals.copy()
     events['previous_departure_sec'] = prev_deps['departure_sec']
     events['previous_departure_trip_id'] = prev_deps['departure_trip_id']
+    events['next_departure_sec'] = next_deps['departure_sec']
+    events['next_departure_trip_id'] = next_deps['departure_trip_id']
 
-    # Filter out same-route transfers
-    events = events[events['route_arr_id'] != events['route_dep_id']].copy()
+    # Drop rows where we couldn't find a next departure (e.g., end of the transit day)
+    events = events.dropna(subset=['next_departure_sec']).copy()
 
     print("Calculating hub-level metrics and severities...")
     events['miss_margin_sec'] = events['passenger_ready_sec'] - events['previous_departure_sec']
@@ -113,7 +138,7 @@ def build_hub_transfers():
     out_file = "artifacts/data/hub_transfer_events.csv"
     events.to_csv(out_file, index=False)
 
-    print(f"\n✅ SUCCESS: Mapped {len(events):,} hub-level transfer opportunities.")
+    print(f"\n✅ SUCCESS: Mapped {len(events):,} route-direction safe hub-level transfer opportunities.")
     print(f"   Saved to: {out_file}")
 
 if __name__ == "__main__":
