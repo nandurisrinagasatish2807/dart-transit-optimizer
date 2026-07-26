@@ -8,7 +8,7 @@ from dart_optimizer.transfers.matcher import match_transfers, time_to_seconds
 
 def run_transfer_simulation(target_date_str="20260722"):
     print(f"\n{'='*50}")
-    print("🚇 DART Optimizer | Phase 5: Block-Aware Full-Network Simulator (Directional Scoping)")
+    print("🚇 DART Optimizer | Phase 5: Block-Aware Simulator (Passenger Metrics Update)")
     print(f"{'='*50}")
     
     raw_dir = "data/raw" if os.path.exists("data/raw/stop_times.txt") else "."
@@ -37,23 +37,28 @@ def run_transfer_simulation(target_date_str="20260722"):
     
     hubs = pd.read_csv("artifacts/data/transit_hubs.csv", dtype=str)
     
-    print("Calculating baseline network state using shared matcher...")
+    print("Calculating baseline network state and passenger wait times...")
     baseline_events = match_transfers(stop_times, trips_routes, hubs=hubs)
     baseline_misses = baseline_events[baseline_events['is_near_miss']].copy()
     
-    # FIX: Group candidates by both Route AND Direction
     top_candidates = baseline_misses.groupby(['route_dep_name', 'dir_dep']).size().reset_index(name='misses').sort_values('misses', ascending=False).head(5)
     offsets = [-180, -120, 60, 120, 180]
     
+    # FIX: Group total passenger wait times across the entire network, not just the misses
+    base_grouped = baseline_events.groupby(['hub_id', 'route_arr_name', 'route_dep_name', 'dir_dep']).agg(
+        base_misses=('is_near_miss', 'sum'),
+        base_wait_sec=('next_wait_sec', 'sum'),
+        total_evaluated=('is_near_miss', 'count')
+    ).reset_index()
+    
     simulation_results = []
-    print(f"Simulating network ripple effects with directionally scoped shifts...")
+    print(f"Simulating network ripple effects and measuring wait-time trade-offs...")
     
     for _, candidate in top_candidates.iterrows():
         route = candidate['route_dep_name']
         direction = candidate['dir_dep']
         route_id = trips_routes[trips_routes['route_short_name'] == route]['route_id'].iloc[0]
         
-        # FIX: Filter target trips by the specific direction_id
         route_trip_ids = trips_routes[(trips_routes['route_id'] == route_id) & (trips_routes['direction_id'] == direction)]['trip_id'].tolist()
 
         for offset in offsets:
@@ -80,16 +85,31 @@ def run_transfer_simulation(target_date_str="20260722"):
             shifted_st.loc[mask, 'departure_sec'] += offset
             
             sim_events = match_transfers(shifted_st, trips_routes, hubs=hubs)
-            sim_misses = sim_events[sim_events['is_near_miss']]
             
-            base_grouped = baseline_misses.groupby(['hub_id', 'route_arr_name', 'route_dep_name', 'dir_dep']).size().reset_index(name='base_misses')
-            sim_grouped = sim_misses.groupby(['hub_id', 'route_arr_name', 'route_dep_name', 'dir_dep']).size().reset_index(name='sim_misses')
+            # FIX: Calculate simulated wait times
+            sim_grouped = sim_events.groupby(['hub_id', 'route_arr_name', 'route_dep_name', 'dir_dep']).agg(
+                sim_misses=('is_near_miss', 'sum'),
+                sim_wait_sec=('next_wait_sec', 'sum')
+            ).reset_index()
             
             comparison = base_grouped.merge(sim_grouped, on=['hub_id', 'route_arr_name', 'route_dep_name', 'dir_dep'], how='outer').fillna(0)
-            comparison['rescued_near_misses'] = comparison['base_misses'] - comparison['sim_misses']
-            comparison['newly_created_misses'] = comparison['sim_misses'] - comparison['base_misses']
             
-            impacted = comparison[(comparison['rescued_near_misses'] > 0) | (comparison['newly_created_misses'] > 0)].copy()
+            comparison['rescued_near_misses'] = np.maximum(0, comparison['base_misses'] - comparison['sim_misses'])
+            comparison['newly_created_misses'] = np.maximum(0, comparison['sim_misses'] - comparison['base_misses'])
+            
+            # Convert seconds to minutes for clean reporting
+            comparison['baseline_total_wait_minutes'] = comparison['base_wait_sec'] / 60.0
+            comparison['simulated_total_wait_minutes'] = comparison['sim_wait_sec'] / 60.0
+            comparison['wait_minutes_saved'] = np.maximum(0, comparison['baseline_total_wait_minutes'] - comparison['simulated_total_wait_minutes'])
+            comparison['wait_minutes_added'] = np.maximum(0, comparison['simulated_total_wait_minutes'] - comparison['baseline_total_wait_minutes'])
+            
+            # Only record the routes that actually felt the ripple effect
+            impacted = comparison[
+                (comparison['rescued_near_misses'] > 0) | 
+                (comparison['newly_created_misses'] > 0) | 
+                (comparison['wait_minutes_saved'] > 0) | 
+                (comparison['wait_minutes_added'] > 0)
+            ].copy()
             
             for _, row in impacted.iterrows():
                 simulation_results.append({
@@ -99,9 +119,13 @@ def run_transfer_simulation(target_date_str="20260722"):
                     'direction_id': row['dir_dep'],
                     'offset_sec': offset,
                     'offset_min': offset / 60,
-                    'rescued_near_misses': max(0, row['rescued_near_misses']),
-                    'newly_created_misses': max(0, row['newly_created_misses']),
-                    'total_evaluated': row['base_misses'],
+                    'rescued_near_misses': int(row['rescued_near_misses']),
+                    'newly_created_misses': int(row['newly_created_misses']),
+                    'baseline_total_wait_minutes': round(row['baseline_total_wait_minutes'], 1),
+                    'simulated_total_wait_minutes': round(row['simulated_total_wait_minutes'], 1),
+                    'wait_minutes_saved': round(row['wait_minutes_saved'], 1),
+                    'wait_minutes_added': round(row['wait_minutes_added'], 1),
+                    'total_evaluated': int(row['total_evaluated']),
                     'block_feasible': route_feasible,
                     'violating_trips': violating_trips,
                     'min_remaining_layover_sec': min_remaining
@@ -113,7 +137,7 @@ def run_transfer_simulation(target_date_str="20260722"):
     out_file = "artifacts/data/simulation_results.csv"
     sim_df.to_csv(out_file, index=False)
     
-    print("\n✅ SUCCESS: Phase 5 Directionally Scoped Simulation Complete.")
+    print("\n✅ SUCCESS: Phase 5 Simulation Complete with Passenger Wait-Time Metrics.")
     print(f"   Saved simulation matrix to: {out_file}")
 
 if __name__ == "__main__":
