@@ -39,9 +39,41 @@ def run_transfer_simulation(target_date_str="20260722"):
     
     print("Calculating baseline network state and passenger wait times...")
     baseline_events = match_transfers(stop_times, trips_routes, hubs=hubs)
+    
+    # --- NEW RIDERSHIP WEIGHTING & TIME-OF-DAY BUCKETING ---
+    # 1. Bucket by AM Peak, PM Peak, or Off-Peak
+    baseline_events['hour_of_day'] = (baseline_events['next_departure_sec'] // 3600) % 24
+
+    def categorize_peak(hour):
+        if 6 <= hour <= 9: return 'AM Peak'
+        elif 15 <= hour <= 18: return 'PM Peak'
+        else: return 'Off-Peak'
+
+    baseline_events['time_period'] = baseline_events['hour_of_day'].apply(categorize_peak)
+
+    # 2. Map route-level ridership weights
+    ridership_df = pd.read_csv("data/raw/dart_ridership_kpi.csv")
+    ridership_dict = dict(zip(ridership_df['route_short_name'].astype(str), ridership_df['monthly_riders']))
+
+    baseline_events['arr_ridership'] = baseline_events['route_arr_name'].astype(str).map(ridership_dict).fillna(5000)
+    baseline_events['dep_ridership'] = baseline_events['route_dep_name'].astype(str).map(ridership_dict).fillna(5000)
+    # Use log10 to compress massive rail ridership numbers so local buses aren't ignored
+    baseline_events['connection_weight'] = (baseline_events['arr_ridership'] + baseline_events['dep_ridership']) 
+    # -------------------------------------------------------
+
     baseline_misses = baseline_events[baseline_events['is_near_miss']].copy()
     
-    top_candidates = baseline_misses.groupby(['route_dep_name', 'dir_dep']).size().reset_index(name='misses').sort_values('misses', ascending=False).head(5)
+    # 3. UPGRADE: Select top candidates based on true Rider Pain Index
+    weighted_candidates = baseline_misses.groupby(['route_dep_name', 'dir_dep']).agg(
+        raw_misses=('is_near_miss', 'sum'),
+        avg_weight=('connection_weight', 'mean')
+    ).reset_index()
+    
+    weighted_candidates['rider_pain_index'] = weighted_candidates['raw_misses'] * weighted_candidates['avg_weight']
+    top_candidates = weighted_candidates.sort_values('rider_pain_index', ascending=False).head(5)
+    
+    print(f"Top 5 Weighted Simulation Candidates Identified.")
+
     offsets = [-180, -120, 60, 120, 180]
     
     # FIX: Group total passenger wait times across the entire network, not just the misses
