@@ -1,11 +1,11 @@
 import os
-import time
 from collections import Counter
 import numpy as np
 import pandas as pd
 import osmnx as ox
 import networkx as nx
 import hdbscan
+from sklearn.cluster import AgglomerativeClustering
 
 # --- OSMnx 2.x settings ---
 ox.settings.requests_timeout = 60
@@ -13,13 +13,17 @@ ox.settings.use_cache = True
 ox.settings.log_console = False
 
 # Edge types a pedestrian cannot or should not use
-BAD_HIGHWAYS = {"motorway", "motorway_link", "cycleway", "construction",
-                "proposed", "platform", "raceway", "abandoned", "bus_guideway"}
+BAD_HIGHWAYS = {
+    "motorway", "motorway_link", "cycleway", "construction",
+    "proposed", "platform", "raceway", "abandoned", "bus_guideway"
+}
+BAD_SERVICE = {"drive-through", "parking_aisle", "driveway"}
 
-# 'foot' isn't kept by default, so request it explicitly
-ox.settings.useful_tags_way = ox.settings.useful_tags_way + ["foot"]
+# Ensure 'foot', 'service', and 'access' tags are preserved when reading XML
+for tag in ("foot", "service", "access"):
+    if tag not in ox.settings.useful_tags_way:
+        ox.settings.useful_tags_way = list(ox.settings.useful_tags_way) + [tag]
 
-GRAPH_CACHE = "data/processed/downtown_walk.graphml"
 OUTPUT_PATH = "artifacts/data/downtown_hdbscan_clusters.csv"
 
 # Downtown Dallas core
@@ -27,9 +31,12 @@ NORTH, SOUTH, EAST, WEST = 32.785, 32.775, -96.790, -96.805
 
 UNREACHABLE_M = 10_000.0   # distance assigned to stop pairs with no walking path
 MAX_SEARCH_M = 3_000.0     # Dijkstra cutoff; anything farther counts as unreachable
+MAX_CLUSTER_DIAMETER_M = 160.0  # Strict max walking distance between ANY two stops in a cluster
 
 
 def _vals(x):
+    if x is None:
+        return set()
     return set(x) if isinstance(x, list) else {x}
 
 
@@ -43,51 +50,70 @@ def load_walk_graph():
     print(f"💾 Loading offline walk network from {offline_file}...")
     G = ox.graph_from_xml(offline_file, bidirectional=True, simplify=False)
 
-    drop = []
-    drop_reasons = Counter()
-    for u, v, k, d in G.edges(keys=True, data=True):
+    def drop_reason(d):
         hw = d.get("highway")
         if not hw:
-            drop.append((u, v, k))
-            drop_reasons["no_highway_tag"] += 1
-        elif _vals(hw) & BAD_HIGHWAYS:
-            drop.append((u, v, k))
-            for b in (_vals(hw) & BAD_HIGHWAYS):
-                drop_reasons[f"bad_hw:{b}"] += 1
-        elif "no" in _vals(d.get("foot")):
-            drop.append((u, v, k))
-            drop_reasons["foot=no"] += 1
-        elif "private" in _vals(d.get("service")):
-            drop.append((u, v, k))
-            drop_reasons["service=private"] += 1
+            return "no_highway_tag"
+        bad = _vals(hw) & BAD_HIGHWAYS
+        if bad:
+            return "bad_hw:" + sorted(bad)[0]
+        if "no" in _vals(d.get("foot")):
+            return "foot=no"
+        if _vals(d.get("access")) & {"private", "no"}:
+            return "access=private"
+        svc = _vals(d.get("service"))
+        if "private" in svc:
+            return "service=private"
+        if svc & BAD_SERVICE:
+            return "service=" + sorted(svc & BAD_SERVICE)[0]
+        return None
 
+    drop, why = [], Counter()
+    for u, v, k, d in G.edges(keys=True, data=True):
+        r = drop_reason(d)
+        if r:
+            drop.append((u, v, k))
+            why[r] += 1
+
+    print(f"   removed {len(drop)} non-walkable edges: {dict(why)}")
     G.remove_edges_from(drop)
     G.remove_nodes_from(list(nx.isolates(G)))
-    G = ox.truncate.largest_component(G, strongly=False)
-    print(f"   removed {len(drop)} non-walkable edges: {dict(drop_reasons)}")
-    return G
+    return ox.truncate.largest_component(G, strongly=False)
+
+
+def attach_routes(downtown_stops):
+    """Map GTFS route_ids to each stop in Downtown Dallas."""
+    st_path, tr_path = "data/raw/stop_times.txt", "data/raw/trips.txt"
+    if not (os.path.exists(st_path) and os.path.exists(tr_path)):
+        downtown_stops["routes"] = [[] for _ in range(len(downtown_stops))]
+        return downtown_stops
+
+    stop_ids = set(downtown_stops["stop_id"].astype(str))
+    st = pd.read_csv(st_path, usecols=["trip_id", "stop_id"], dtype=str)
+    tr = pd.read_csv(tr_path, usecols=["trip_id", "route_id"], dtype=str)
+    m = st[st["stop_id"].isin(stop_ids)].merge(tr, on="trip_id")
+    route_map = m.groupby("stop_id")["route_id"].agg(lambda s: sorted(set(s))).to_dict()
+    downtown_stops["routes"] = downtown_stops["stop_id"].astype(str).map(lambda x: route_map.get(x, []))
+    return downtown_stops
 
 
 def run_osmnx_hdbscan(stops_path):
     print("==================================================")
-    print("🚶 DART Optimizer | Phase 6: OSMnx & HDBSCAN Walkability")
+    print("🚶 DART Optimizer | Phase 6: OSMnx True-Walk Clustering")
     print("==================================================")
 
     # 1. Load stops and filter to Downtown Dallas
-    stops = pd.read_csv(stops_path)
+    stops = pd.read_csv(stops_path, dtype={"stop_id": str})
     mask = (
         (stops["stop_lat"] <= NORTH) & (stops["stop_lat"] >= SOUTH)
         & (stops["stop_lon"] <= EAST) & (stops["stop_lon"] >= WEST)
     )
     downtown_stops = stops[mask].copy().reset_index(drop=True)
+    downtown_stops = attach_routes(downtown_stops)
     print(f"✅ Filtered to {len(downtown_stops)} stops in the Downtown Dallas bounding box.")
-    if len(downtown_stops) < 2:
-        raise SystemExit("Need at least 2 stops to cluster. Check the bbox and stops.txt.")
 
     # 2. Walking network
     G = load_walk_graph()
-    if len(G.nodes) == 0:
-        raise SystemExit("Downloaded graph is empty. Check the bbox and file.")
     print(f"✅ Walk network loaded: {len(G.nodes)} nodes and {len(G.edges)} edges.")
 
     # 3. Snap stops to nearest pedestrian nodes
@@ -110,66 +136,66 @@ def run_osmnx_hdbscan(stops_path):
             if dst in lengths:
                 dist_matrix[i, j] = lengths[dst]
 
-    # Enforce symmetry and a zero diagonal
     dist_matrix = np.minimum(dist_matrix, dist_matrix.T)
     np.fill_diagonal(dist_matrix, 0.0)
 
-    reachable = (dist_matrix < UNREACHABLE_M).sum() - n
-    print(f"   {reachable // 2} of {n * (n - 1) // 2} stop pairs are walk-connected within {MAX_SEARCH_M:.0f} m")
-
-    # 5. HDBSCAN on the precomputed street distances
-    print("🧠 Running HDBSCAN variable-density clustering...")
-    clusterer = hdbscan.HDBSCAN(
+    # 5A. Reference HDBSCAN (leaf) for comparison
+    hdb = hdbscan.HDBSCAN(
         metric="precomputed",
         min_cluster_size=3,
         min_samples=2,
         cluster_selection_method="leaf",
         cluster_selection_epsilon=100.0,
     )
-    downtown_stops["hdbscan_cluster"] = clusterer.fit_predict(dist_matrix)
+    downtown_stops["hdbscan_raw_cluster"] = hdb.fit_predict(dist_matrix)
 
-    n_clusters = downtown_stops["hdbscan_cluster"].max() + 1
-    n_noise = int((downtown_stops["hdbscan_cluster"] == -1).sum())
-    print(f"   Found {n_clusters} clusters; {n_noise} stops labeled noise (-1).")
-
-    # --- diagnostics ---
-    print("\n--- diagnostics ---")
-    print("cluster sizes:", downtown_stops["hdbscan_cluster"].value_counts().sort_index().to_dict())
-
-    _, snap_d = ox.distance.nearest_nodes(
-        G, X=downtown_stops["stop_lon"].values, Y=downtown_stops["stop_lat"].values,
-        return_dist=True,
+    # 5B. Complete-Linkage Clustering (Enforces strict max walking diameter, zero chaining)
+    print(f"🧠 Running Complete-Linkage Walk Clustering (max diameter = {MAX_CLUSTER_DIAMETER_M:.0f}m)...")
+    agg = AgglomerativeClustering(
+        n_clusters=None,
+        metric="precomputed",
+        linkage="complete",
+        distance_threshold=MAX_CLUSTER_DIAMETER_M,
     )
-    print(f"snap distance m: median={np.median(snap_d):.0f}, max={np.max(snap_d):.0f}")
+    raw_labels = agg.fit_predict(dist_matrix)
+    counts = pd.Series(raw_labels).value_counts()
 
-    lat = np.radians(downtown_stops["stop_lat"].values)
-    lon = np.radians(downtown_stops["stop_lon"].values)
-    dlat = lat[:, None] - lat[None, :]
-    dlon = lon[:, None] - lon[None, :]
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat)[:, None] * np.cos(lat)[None, :] * np.sin(dlon / 2) ** 2
-    straight = 2 * 6371000 * np.arcsin(np.sqrt(a))
-    iu = np.triu_indices(n, k=1)
-    keep = straight[iu] > 50
-    ratio = dist_matrix[iu][keep] / straight[iu][keep]
-    print(f"circuity: median={np.median(ratio):.2f}, p5={np.percentile(ratio, 5):.2f}, p95={np.percentile(ratio, 95):.2f}")
+    # Re-index multi-stop clusters cleanly from 0 to K-1, singletons -> -1
+    valid_old_ids = sorted([lbl for lbl, cnt in counts.items() if cnt >= 2])
+    id_map = {old_id: new_id for new_id, old_id in enumerate(valid_old_ids)}
+    downtown_stops["hdbscan_cluster"] = [id_map.get(lbl, -1) for lbl in raw_labels]
 
-    for method in ("eom", "leaf"):
-        for mcs in (2, 3):
-            for eps in (0, 80, 120, 150):
-                lab = hdbscan.HDBSCAN(
-                    metric="precomputed",
-                    min_cluster_size=mcs,
-                    min_samples=2,
-                    cluster_selection_method=method,
-                    cluster_selection_epsilon=float(eps),
-                ).fit_predict(dist_matrix)
-                sizes = sorted(np.bincount(lab[lab >= 0]).tolist(), reverse=True)[:8]
-                print(f"method={method:<4} | mcs={mcs} | eps={eps:>3}m -> clusters={lab.max() + 1:>2}, noise={(lab == -1).sum():>2}, top sizes={sizes}")
+    # Compute cluster diameter and classify (Consolidation vs Transfer Hub)
+    max_walks = np.zeros(n, dtype=np.float64)
+    cluster_types = ["Standalone_Stop"] * n
+
+    for cid, g in downtown_stops[downtown_stops["hdbscan_cluster"] >= 0].groupby("hdbscan_cluster"):
+        idx = g.index.tolist()
+        diam = float(dist_matrix[np.ix_(idx, idx)].max())
+        route_sets = [set(r) for r in g["routes"]]
+        has_duplicate_corridor = any(
+            len(route_sets[a]) > 0 and route_sets[a] == route_sets[b]
+            for a in range(len(route_sets)) for b in range(a + 1, len(route_sets))
+        )
+        ctype = "Consolidation_Candidate" if has_duplicate_corridor else "Transfer_Hub"
+        for i in idx:
+            max_walks[i] = round(diam, 1)
+            cluster_types[i] = ctype
+
+    downtown_stops["cluster_max_walk_m"] = max_walks
+    downtown_stops["cluster_type"] = cluster_types
+    downtown_stops["routes_str"] = downtown_stops["routes"].apply(lambda r: ", ".join(r))
+
+    n_clusters = len(valid_old_ids)
+    n_singleton = int((downtown_stops["hdbscan_cluster"] == -1).sum())
+    type_counts = pd.Series(cluster_types).value_counts().to_dict()
+    print(f"   ✅ Found {n_clusters} bounded walk clusters ({n_singleton} standalone stops).")
+    print(f"   📊 Breakdown by stop role: {type_counts}")
 
     # 6. Save
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    downtown_stops.to_csv(OUTPUT_PATH, index=False)
-    print(f"\n✅ SUCCESS: Saved true-walking clusters to {OUTPUT_PATH}")
+    downtown_stops.drop(columns=["routes"]).to_csv(OUTPUT_PATH, index=False)
+    print(f"✅ SUCCESS: Saved true-walking clusters to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
